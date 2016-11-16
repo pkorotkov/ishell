@@ -10,9 +10,15 @@ const (
 	panicLevel
 )
 
-var (
-	noHandlerErr = WarnErr("No handler registered for input.")
-)
+type noHandlerError string
+
+func newNoHandlerError() noHandlerError {
+	return noHandlerError("no handler registered for input")
+}
+
+func (e noHandlerError) Error() string {
+	return string(e)
+}
 
 // shellError is an interractive shell error
 type shellError struct {

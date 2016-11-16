@@ -18,9 +18,12 @@ import (
 	"gopkg.in/readline.v1"
 )
 
-const (
-	defaultPrompt     = ">>> "
-	defaultNextPrompt = "... "
+var (
+	DefaultPrompt     = ">>> "
+	DefaultNextPrompt = "... "
+	OnNoHandler       = func(s *Shell) {
+		s.Println("No handler for given input is found")
+	}
 )
 
 // Shell is an interactive cli shell.
@@ -38,19 +41,18 @@ type Shell struct {
 	historyFile    string
 }
 
-// New creates a new shell with default settings. Uses standard output and default prompt ">> ".
-func New() *Shell {
-	rl, err := readline.New(defaultPrompt)
+// New creates a new shell with default settings. Uses standard output and default prompt.
+func New() (*Shell, error) {
+	rl, err := readline.New(DefaultPrompt)
 	if err != nil {
-		log.Println("Shell or operating system not supported.")
-		log.Fatal(err)
+		return nil, fmt.Errorf("shell or operating system not supported")
 	}
 	shell := &Shell{
 		functions: make(map[string]CmdFunc),
 		reader: &shellReader{
 			scanner:     rl,
-			prompt:      defaultPrompt,
-			multiPrompt: defaultNextPrompt,
+			prompt:      DefaultPrompt,
+			multiPrompt: DefaultNextPrompt,
 			showPrompt:  true,
 			buf:         bytes.NewBuffer(nil),
 			completer:   readline.NewPrefixCompleter(),
@@ -59,7 +61,7 @@ func New() *Shell {
 		haltChan: make(chan struct{}),
 	}
 	addDefaultFuncs(shell)
-	return shell
+	return shell, nil
 }
 
 // Start starts the shell. It reads inputs from standard input and calls registered functions
@@ -97,38 +99,41 @@ shell:
 		} else if err != nil && err != readline.ErrInterrupt {
 			s.Println("Error:", err)
 		}
-
 		if err == readline.ErrInterrupt {
 			// interrupt received
 			err = handleInterrupt(s, line)
 		} else {
 			// reset interrupt counter
 			s.interruptCount = 0
-
 			// normal flow
 			if len(line) == 0 {
 				// no input line
 				continue
 			}
-
 			err = handleInput(s, line)
 		}
-		if err1, ok := err.(shellError); ok && err != nil {
-			switch err1.level {
-			case warnLevel:
-				s.Println("Warning:", err)
-				continue shell
-			case stopLevel:
-				s.Println(err)
-				break shell
-			case exitLevel:
-				s.Println(err)
-				os.Exit(1)
-			case panicLevel:
-				panic(err)
+		if err != nil {
+			switch e := err.(type) {
+			case shellError:
+				switch e.level {
+				case warnLevel:
+					s.Println("Warning due to error:", err)
+					continue shell
+				case stopLevel:
+					s.Println("Stopping due to error:", err)
+					break shell
+				case exitLevel:
+					s.Println("Exiting due to error:", err)
+					os.Exit(1)
+				case panicLevel:
+					panic(err)
+				}
+			case noHandlerError:
+				OnNoHandler(s)
+			default:
+				s.Println("Unqualified error:", err)
+				os.Exit(2)
 			}
-		} else if !ok && err != nil {
-			s.Println("Error:", err)
 		}
 	}
 }
@@ -145,10 +150,9 @@ func handleInput(s *Shell, line []string) error {
 	if handled || err != nil {
 		return err
 	}
-
 	// Generic handler
 	if s.generic == nil {
-		return noHandlerErr
+		return newNoHandlerError()
 	}
 	output, err := s.generic(line...)
 	if err != nil {
