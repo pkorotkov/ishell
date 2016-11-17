@@ -19,7 +19,7 @@ import (
 )
 
 var (
-	DefaultPrompt     = ">>> "
+	DefaultPrompt     = "> "
 	DefaultNextPrompt = "... "
 	OnNoHandler       = func(s *Shell) {
 		s.Println("No handler for given input is found")
@@ -35,9 +35,10 @@ type Shell struct {
 	reader         *shellReader
 	writer         io.Writer
 	active         bool
-	activeMutex    sync.RWMutex
+	activate       sync.Once // Add this to reduce the burden
+	deactivate     sync.Once // while intensive reading active flag.
 	ignoreCase     bool
-	haltChan       chan struct{}
+	quit           chan struct{}
 	historyFile    string
 }
 
@@ -57,8 +58,8 @@ func New() (*Shell, error) {
 			buf:         bytes.NewBuffer(nil),
 			completer:   readline.NewPrefixCompleter(),
 		},
-		writer:   os.Stdout,
-		haltChan: make(chan struct{}),
+		writer: os.Stdout,
+		quit:   make(chan struct{}),
 	}
 	addDefaultFuncs(shell)
 	return shell, nil
@@ -67,19 +68,14 @@ func New() (*Shell, error) {
 // Start starts the shell. It reads inputs from standard input and calls registered functions
 // accordingly. This function blocks until the shell is stopped.
 func (s *Shell) Start() {
-	s.start()
-}
-
-func (s *Shell) start() {
-	if s.Active() {
+	if s.active {
 		return
 	}
-	s.activeMutex.Lock()
-	s.active = true
-	s.activeMutex.Unlock()
-
+	s.activate.Do(func() {
+		s.active = true
+	})
 shell:
-	for s.Active() {
+	for s.active {
 		var line []string
 		var err error
 		read := make(chan struct{})
@@ -90,8 +86,8 @@ shell:
 		select {
 		case <-read:
 			break
-		case <-s.haltChan:
-			continue shell
+		case <-s.quit:
+			break shell
 		}
 		if err == io.EOF {
 			fmt.Println("EOF")
@@ -108,7 +104,7 @@ shell:
 			// normal flow
 			if len(line) == 0 {
 				// no input line
-				continue
+				continue shell
 			}
 			err = handleInput(s, line)
 		}
@@ -136,13 +132,6 @@ shell:
 			}
 		}
 	}
-}
-
-// Active tells if the shell is active. i.e. Start is previously called.
-func (s *Shell) Active() bool {
-	s.activeMutex.RLock()
-	defer s.activeMutex.RUnlock()
-	return s.active
 }
 
 func handleInput(s *Shell, line []string) error {
@@ -197,16 +186,18 @@ func (s *Shell) handleCommand(str []string) (bool, error) {
 // registered functions. A stopped shell is only inactive but totally functional.
 // Its functions can still be called.
 func (s *Shell) Stop() {
-	s.reader.scanner.Close()
-	if !s.Active() {
+	if !s.active {
 		return
 	}
-	s.activeMutex.Lock()
-	s.active = false
-	s.activeMutex.Unlock()
-	go func() {
-		s.haltChan <- struct{}{}
-	}()
+	s.deactivate.Do(func() {
+		s.reader.scanner.Close()
+		s.active = false
+		go func() {
+			// NB: Actually need a timeout ot make sure
+			// that this go-routine won't leak.
+			s.quit <- struct{}{}
+		}()
+	})
 }
 
 // ReadLine reads a line from standard input.
@@ -241,7 +232,6 @@ func (s *Shell) read() ([]string, error) {
 		}
 		return strings.HasSuffix(strings.TrimSpace(line), "\\")
 	})
-
 	if heredoc {
 		s := strings.SplitN(lines, "<<", 2)
 		args, err1 := shlex.Split(s[0])
@@ -253,14 +243,11 @@ func (s *Shell) read() ([]string, error) {
 		}
 		return args, err
 	}
-
 	lines = strings.Replace(lines, "\\\n", " \n", -1)
-
 	args, err1 := shlex.Split(lines)
 	if err1 != nil {
 		return args, err1
 	}
-
 	return args, err
 }
 
@@ -393,7 +380,6 @@ func (s *Shell) ShowPrompt(show bool) {
 // string to disable history file. It is empty by default.
 func (s *Shell) SetHistoryPath(path string) error {
 	var err error
-
 	// Using scanner.SetHistoryPath doesn't initialize things properly and
 	// history file is never written. Simpler to just create a new readline
 	// Instance.
