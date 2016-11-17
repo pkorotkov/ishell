@@ -19,17 +19,9 @@ func helpFunc(s *Shell) CmdFunc {
 	}
 }
 
-func clearFunc(s *Shell) CmdFunc {
-	return func(args ...string) (string, error) {
-		err := s.ClearScreen()
-		return "", err
-	}
-}
-
 func addDefaultFuncs(s *Shell) {
 	s.Register("exit", exitFunc(s))
 	s.Register("help", helpFunc(s))
-	s.Register("clear", clearFunc(s))
 	s.RegisterInterrupt(interruptFunc(s))
 }
 
