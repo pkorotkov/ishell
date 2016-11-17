@@ -1,7 +1,7 @@
 # ishell
 ishell is an interactive shell library for creating interactive cli applications.
 
-[![Documentation](https://img.shields.io/badge/godoc-reference-blue.svg?style=flat-square)](https://godoc.org/github.com/abiosoft/ishell)
+[![Documentation](https://img.shields.io/badge/godoc-reference-blue.svg?style=flat-square)](https://godoc.org/github.com/pkorotkov/ishell)
 
 ## Usage
 
