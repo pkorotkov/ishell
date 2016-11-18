@@ -68,12 +68,13 @@ func New() (*Shell, error) {
 // Start starts the shell. It reads inputs from standard input and calls registered functions
 // accordingly. This function blocks until the shell is stopped.
 func (s *Shell) Start() {
-	if s.active {
-		return
-	}
 	s.activate.Do(func() {
-		s.active = true
+		s.start()
 	})
+}
+
+func (s *Shell) start() {
+	s.active = true
 shell:
 	for s.active {
 		var line []string
