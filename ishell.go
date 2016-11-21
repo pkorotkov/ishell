@@ -191,13 +191,13 @@ func (s *Shell) Stop() {
 		return
 	}
 	s.deactivate.Do(func() {
-		s.reader.scanner.Close()
 		s.active = false
 		go func() {
 			// NB: Actually need a timeout ot make sure
 			// that this go-routine won't leak.
 			s.quit <- struct{}{}
 		}()
+		s.reader.scanner.Close()
 	})
 }
 
