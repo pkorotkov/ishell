@@ -38,7 +38,6 @@ type Shell struct {
 	activate       sync.Once // Add this to reduce the burden
 	deactivate     sync.Once // while intensive reading active flag.
 	ignoreCase     bool
-	quit           chan struct{}
 	historyFile    string
 }
 
@@ -59,7 +58,6 @@ func New() (*Shell, error) {
 			completer:   readline.NewPrefixCompleter(),
 		},
 		writer: os.Stdout,
-		quit:   make(chan struct{}),
 	}
 	addDefaultFuncs(shell)
 	return shell, nil
@@ -84,16 +82,13 @@ shell:
 			line, err = s.read()
 			read <- struct{}{}
 		}()
-		select {
-		case <-read:
-			break
-		case <-s.quit:
-			break shell
-		}
+		<-read
+		// TODO: Make these case more accurate.
 		if err == io.EOF {
 			fmt.Println("EOF")
-			break
-		} else if err != nil && err != readline.ErrInterrupt {
+			break shell
+		}
+		if err != nil && err != readline.ErrInterrupt {
 			s.Println("Error:", err)
 		}
 		if err == readline.ErrInterrupt {
@@ -118,10 +113,10 @@ shell:
 					continue shell
 				case stopLevel:
 					s.Println("Stopping due to error:", err)
-					break shell
+					return
 				case exitLevel:
 					s.Println("Exiting due to error:", err)
-					os.Exit(1)
+					return
 				case panicLevel:
 					panic(err)
 				}
@@ -129,7 +124,7 @@ shell:
 				OnNoHandler(s)
 			default:
 				s.Println("Unqualified error:", err)
-				os.Exit(2)
+				return
 			}
 		}
 	}
@@ -192,11 +187,6 @@ func (s *Shell) Stop() {
 	}
 	s.deactivate.Do(func() {
 		s.active = false
-		go func() {
-			// NB: Actually need a timeout ot make sure
-			// that this go-routine won't leak.
-			s.quit <- struct{}{}
-		}()
 		s.reader.scanner.Close()
 	})
 }
