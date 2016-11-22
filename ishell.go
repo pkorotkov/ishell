@@ -6,10 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"os"
-	"os/exec"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -307,9 +304,9 @@ func (s *Shell) Print(val ...interface{}) {
 }
 
 // Register registers a function for command. It overwrites existing function, if any.
-func (s *Shell) Register(command string, function CmdFunc) {
+// Use before (*Shell).Start.
+func (s *Shell) Register(command string, function CmdFunc) (err error) {
 	s.functions[command] = function
-
 	// readline library does not provide a better way
 	// yet than to regenerate the AutoComplete
 	// TODO modify when available
@@ -317,17 +314,10 @@ func (s *Shell) Register(command string, function CmdFunc) {
 	for word := range s.functions {
 		pcItems = append(pcItems, readline.PcItem(word))
 	}
-
-	var err error
-	// close current scanner and rebuild it with
-	// command in autocomplete
-	s.reader.scanner.Close()
 	config := s.reader.scanner.Config
 	config.AutoComplete = readline.NewPrefixCompleter(pcItems...)
 	s.reader.scanner, err = readline.NewEx(config)
-	if err != nil {
-		log.Fatal(err)
-	}
+	return
 }
 
 // Unregister unregisters a function for a command
@@ -369,25 +359,25 @@ func (s *Shell) ShowPrompt(show bool) {
 
 // SetHistoryPath sets where readlines history file location. Use an empty
 // string to disable history file. It is empty by default.
-func (s *Shell) SetHistoryPath(path string) error {
-	var err error
-	// Using scanner.SetHistoryPath doesn't initialize things properly and
-	// history file is never written. Simpler to just create a new readline
-	// Instance.
-	s.reader.scanner.Close()
-	config := s.reader.scanner.Config
-	config.HistoryFile = path
-	s.reader.scanner, err = readline.NewEx(config)
-	return err
-}
+// func (s *Shell) SetHistoryPath(path string) error {
+// 	var err error
+// 	// Using scanner.SetHistoryPath doesn't initialize things properly and
+// 	// history file is never written. Simpler to just create a new readline
+// 	// Instance.
+// 	s.reader.scanner.Close()
+// 	config := s.reader.scanner.Config
+// 	config.HistoryFile = path
+// 	s.reader.scanner, err = readline.NewEx(config)
+// 	return err
+// }
 
 // SetHomeHistoryPath is a convenience method that sets the history path with a
 // $HOME prepended path.
-func (s *Shell) SetHomeHistoryPath(path string) {
-	home := os.Getenv("HOME")
-	abspath := fmt.Sprintf("%s/%s", home, path)
-	s.SetHistoryPath(abspath)
-}
+// func (s *Shell) SetHomeHistoryPath(path string) {
+// 	home := os.Getenv("HOME")
+// 	abspath := fmt.Sprintf("%s/%s", home, path)
+// 	s.SetHistoryPath(abspath)
+// }
 
 // SetOut sets the writer to write outputs to.
 func (s *Shell) SetOut(writer io.Writer) {
@@ -418,18 +408,4 @@ func (s *Shell) Commands() []string {
 // If true, commands must be registered in lower cases. e.g. shell.Register("cmd", ...)
 func (s *Shell) IgnoreCase(ignore bool) {
 	s.ignoreCase = ignore
-}
-
-// ClearScreen clears the screen. Same behaviour as running 'clear' in unix terminal or 'cls' in windows cmd.
-func (s *Shell) ClearScreen() error {
-	return clearScreen(s)
-}
-
-func clearScreen(s *Shell) error {
-	cmd := exec.Command("clear")
-	if runtime.GOOS == "windows" {
-		cmd = exec.Command("cmd", "/C", "cls")
-	}
-	cmd.Stdout = s.writer
-	return cmd.Run()
 }
